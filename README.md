@@ -93,8 +93,17 @@ uv run mcp_client.py
 I have $2,000. Get the performance of the major US stock indices from yfinance over the past 6 months and run ML models to predict how to allocate this investment to maximize potential returns over the next 2 months.
 
 
+https://github.com/user-attachments/assets/397db075-bdd5-4882-84b9-571bf27a9005
+
+
+
+
 ## 📽️ Demo 2
 Run multiple simulations of a U.S. economic deflation crash, pick the most probable and explain the impact it will have on my stock portfolio.
+
+
+
+https://github.com/user-attachments/assets/83c01dc1-c8b9-49ab-8943-1448548d79fe
 
 
 
