@@ -1,4 +1,4 @@
-from e2b_code_interpreter import Sandbox
+from novita_sandbox.code_interpreter import Sandbox
 
 
 class SandboxManager:
