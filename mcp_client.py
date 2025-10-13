@@ -1,11 +1,13 @@
 import asyncio
 import os
 from datetime import datetime
+from typing import Optional
 
 import mcp_use
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from mcp_use import MCPAgent, MCPClient
+from pydantic import BaseModel, Field
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
@@ -19,6 +21,13 @@ console = Console()
 mcp_use.set_debug(1)
 
 
+class ResponseFormat(BaseModel):
+    response: str
+    id_of_used_sandbox: Optional[str] = Field(
+        ..., description="The id of the sandbox used if any"
+    )
+
+
 async def main(model: str, base_url: str, api_key: str):
 
     # Create configuration dictionary
@@ -28,6 +37,7 @@ async def main(model: str, base_url: str, api_key: str):
                 # If the url the mcp server is running at is different replace below,
                 # also remember to add /mcp.
                 "url": "http://127.0.0.1:8000/mcp",
+                "auth": api_key,
             }
         }
     }
@@ -61,22 +71,31 @@ async def main(model: str, base_url: str, api_key: str):
         )
     )
 
-    try:
-        while True:
-            user_input = Prompt.ask("\n[bold yellow]>>> User Message[/bold yellow]")
+    last_used_sandbox_id = None
+    while True:
+        user_input = Prompt.ask("\n[bold yellow]>>> User Message[/bold yellow]")
 
-            if user_input.lower().strip() == "quit()":
-                break
+        if user_input.lower().strip() == "quit()":
+            break
 
-            # Pass the query to the agent and await the response.
-            response = await agent.run(user_input)
-            console.print(f"\n[bold green]>>> Assistant Response: {response} [/]")
+        # Pass the query to the agent and await the response.
+        response_obj = await agent.run(user_input, output_schema=ResponseFormat)
 
-    finally:
-        # Will trigger closure of sandbox on MCP server if it sill active.
-        session = await client.create_session("stock&sandbox")
-        await session.call_tool(name="stop_sandbox_session", arguments=None)
-        await session.disconnect()
+        console.print(
+            f"\n[bold green]>>> Assistant Response: {response_obj.response} [/]"
+        )
+
+        # Update the last used sandbox id.
+        last_used_sandbox_id = response_obj.id_of_used_sandbox
+
+        if last_used_sandbox_id:
+            # Will trigger closure of sandbox on MCP server if it sill active.
+            session = await client.create_session("stock&sandbox")
+            await session.call_tool(
+                name="stop_sandbox_session",
+                arguments={"sandbox_id": last_used_sandbox_id},
+            )
+            await session.disconnect()
 
 
 if __name__ == "__main__":

@@ -2,12 +2,33 @@ import asyncio
 import os
 
 from dotenv import load_dotenv
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from starlette.requests import Request
 
 from sandbox_manager import SandboxManager
+
+
+def get_user_api_key(ctx: Context) -> str:
+    """
+    Returns the API key from the request header if it exists otherwise raise an exception.
+    """
+
+    request: Request = ctx.request_context.request
+
+    # Access request data
+    auth_header = request.headers.get("Authorization")
+
+    if auth_header:
+        auth_header = auth_header.split(" ")[1]
+
+    if not auth_header:
+        raise Exception("Missing API Key in Authorization Bearer header")
+
+    return auth_header
+
 
 # load .env variables
 load_dotenv()
@@ -20,7 +41,6 @@ mcp = FastMCP("MCP_Server")
 # Initialize sandbox manager for the singleton sandbox instance.
 sandbox_manager = SandboxManager(
     sandbox_template=os.getenv("NOVITA_E2B_TEMPLATE"),
-    api_key_for_sandbox=os.getenv("NOVITA_API_KEY"),
     sandbox_domain=os.getenv("NOVITA_E2B_DOMAIN"),
     sandbox_timeout=900,  # 900 seconds (15 minutes), sandbox instance will be killed automatically after.
 )
@@ -95,37 +115,44 @@ def instructions_for_sandbox_use() -> str:
     When you are done, you must kill the sandbox session by calling the stop_sandbox_session() function.
 
     Note: 
-    - There can only be one sandbox session at a time, creating another sandbox when one is active will kill
-    the previous sandbox session.
-
-    - The sandbox already comes pre-installed with the usual data analysis packages but if there's a package you
+       - The sandbox already comes pre-installed with the usual data analysis packages but if there's a package you
     are not sure exists or your code had an import error due to a missing package, you can check if it's installed and if not install it.
     """
 
 
 @mcp.tool()
-def create_sandbox_session() -> str:
+def create_sandbox_session(ctx: Context) -> str:
     """
-    This will create a new singleton sandbox instance meaning any pre-existing sandbox will be killed.
+    This will create a sandbox instance and return success message with the sandbox id or error message.
     """
-    return sandbox_manager.create_sandbox_session()
+    try:
+        return sandbox_manager.create_sandbox_session(get_user_api_key(ctx))
+    except Exception as e:
+        return e
 
 
 @mcp.tool()
-def stop_sandbox_session() -> str:
+def stop_sandbox_session(sandbox_id: str, ctx: Context) -> str:
     """
-    This will kill the active singleton sandbox instance if any.
+    This will kill a sandbox instance if it exists.
     """
-    return sandbox_manager.stop_sandbox_session()
+    try:
+        return sandbox_manager.stop_sandbox_session(get_user_api_key(ctx), sandbox_id)
+    except Exception as e:
+        return e
 
 
 @mcp.tool()
-def run_python_code(python_code: str) -> dict:
+def run_python_code(python_code: str, sandbox_id: str, ctx: Context) -> dict:
     """
-    Runs the python code on the active sandbox, and if there any image outputs they are skipped.
+    Runs the python code on the sandbox, and if there any image outputs they are skipped.
 
     Args:
         python_code (str): The python code to run.
+        sandbox_id (str): The ID of the sandbox.
+
+    Note:
+        The ctx (Context) is a dependency injection object that is automatically passed.
 
     Returns:
         dict: Containing stdout, logs, error, etc.
@@ -137,22 +164,34 @@ def run_python_code(python_code: str) -> dict:
             border_style="blue",
         )
     )
-    result = sandbox_manager.run_python_code(python_code)
-    # display the result. Note: only do this in test not in prod.
-    display_sandbox_code_output(result)
-    return result
+
+    try:
+        result = sandbox_manager.run_python_code(
+            python_code, get_user_api_key(ctx), sandbox_id
+        )
+
+        # display the result. Note: only do this in test not in prod.
+        display_sandbox_code_output(result)
+        return result
+
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @mcp.tool()
-def run_on_command_line(command_line: str) -> dict:
+def run_on_command_line(command_line: str, sandbox_id: str, ctx: Context) -> dict:
     """
-    Runs the command line on the active sandbox, and if there are any image outputs they are skipped.
+    Runs the command on the sandbox.
 
     Args:
-        command_line (str): The command line to run.
+        command_line (str): The command to run.
+        sandbox_id (str): The ID of the sandbox.
+
+    Note:
+        The ctx (Context) is a dependency injection object that is automatically passed.
 
     Returns:
-        dict: Containing stdout, logs, error, etc.
+        dict: Containing the output of the command and the execution error if any.
     """
     console.print(
         Panel(
@@ -161,10 +200,18 @@ def run_on_command_line(command_line: str) -> dict:
             border_style="blue",
         )
     )
-    result = sandbox_manager.run_on_command_line(command_line)
-    # display the result. Note: only do this in test not in prod.
-    display_sandbox_command_output(result)
-    return result
+
+    try:
+        result = sandbox_manager.run_on_command_line(
+            command_line, get_user_api_key(ctx), sandbox_id
+        )
+
+        # display the result. Note: only do this in test not in prod.
+        display_sandbox_command_output(result)
+        return result
+
+    except Exception as e:
+        return {"execution error": str(e)}
 
 
 @mcp.resource("data://user_stock_portfolio")
@@ -248,9 +295,4 @@ if __name__ == "__main__":
     # Note: We use streamable-http as the transport protocol instead of stdio because we are
     # printing to the console which would block stdio.
     # Also in production you should use SSE or streamable-http rather than stdio.
-    try:
-        asyncio.run(mcp.run(transport="streamable-http"))
-    finally:
-        # When server stops abruptly, we need to kill the sandbox session if it exists.
-        sandbox_manager.stop_sandbox_session()
-        sandbox_manager = None
+    asyncio.run(mcp.run(transport="streamable-http"))
