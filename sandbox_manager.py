@@ -5,79 +5,86 @@ class SandboxManager:
     def __init__(
         self,
         sandbox_template: str,
-        api_key_for_sandbox: str,
         sandbox_domain: str,
         sandbox_timeout: int,
     ):
-        self.sandbox: Sandbox | None = None
         self.sandbox_template = sandbox_template
-        self.api_key_for_sandbox = api_key_for_sandbox
         self.sandbox_domain = sandbox_domain
         self.sandbox_timeout = sandbox_timeout
 
-    def _ensure_sandbox_is_running(self) -> None:
+    def create_sandbox_session(self, sandbox_api_key: str) -> str:
         """
-        Ensures that a sandbox is running else raise an exception.
-        """
-        if not self.sandbox:
-            raise Exception("No sandbox session has been created.")
+        This will create a new sandbox instance.
 
-        if not self.sandbox.is_running():
-            raise Exception("Current sandbox has been killed or timeout.")
+        Args:
+            sandbox_api_key (str): The API key for the sandbox.
 
-    def create_sandbox_session(self) -> str:
-        """
-        This will create a new singleton sandbox instance meaning any pre-existing sandbox will be killed.
+        Returns:
+            str: Success message with the sandbox ID of the new sandbox or error message.
         """
         try:
 
-            if self.sandbox:
-                # kill the previous sandbox if it exists
-                self.stop_sandbox_session()
-
             # create the new sandbox
-            self.sandbox = Sandbox.create(
+            sandbox = Sandbox.create(
                 template=self.sandbox_template,
-                api_key=self.api_key_for_sandbox,
+                api_key=sandbox_api_key,
                 domain=self.sandbox_domain,
                 timeout=self.sandbox_timeout,
             )
-            return "Sandbox created successfully."
+
+            return f"Successfully created sandbox. Sandbox ID: {sandbox.sandbox_id}"
 
         except Exception as e:
             return f"Failed to create new sandbox:{str(e)}"
 
-    def stop_sandbox_session(self) -> str:
+    def stop_sandbox_session(self, sandbox_api_key: str, sandbox_id: str) -> str:
         """
-        This will kill the active singleton sandbox instance if any.
+        This will kill a sandbox instance if it exists.
+
+        Args:
+            sandbox_api_key (str): The API key for the sandbox.
+            sandbox_id (str): The ID of the sandbox.
+
+        Returns:
+            str: Success message with the sandbox ID of the killed sandbox or error message.
         """
         try:
+            # connect to sandbox
+            sandbox = Sandbox.connect(
+                api_key=sandbox_api_key,
+                sandbox_id=sandbox_id,
+            )
 
-            if self.sandbox:
-                self.sandbox.kill()
-                self.sandbox = None
-                return "Sandbox killed successfully."
-            else:
-                return "No sandbox to kill."
+            sandbox.kill()
+
+            return f"Successfully killed Sandbox ID: {sandbox_id}"
 
         except Exception as e:
-            return f"Failed to kill sandbox: {str(e)}"
+            return f"Failed to kill Sandbox ID: {sandbox_id}\n {str(e)}"
 
-    def run_python_code(self, python_code: str) -> dict:
+    def run_python_code(
+        self, python_code: str, sandbox_api_key: str, sandbox_id: str
+    ) -> dict:
         """
-        Runs the python code on the active sandbox, and if there any image outputs they are skipped.
+        Runs the python code on the sandbox, and if there any image outputs they are skipped.
 
         Args:
             python_code (str): The python code to run.
+            sandbox_api_key (str): The API key for the sandbox.
+            sandbox_id (str): The ID of the sandbox.
 
         Returns:
             dict: Containing stdout, logs, error, etc.
         """
 
         try:
-            self._ensure_sandbox_is_running()
+            # connect to sandbox
+            sandbox = Sandbox.connect(
+                api_key=sandbox_api_key,
+                sandbox_id=sandbox_id,
+            )
 
-            execution = self.sandbox.run_code(python_code, language="python")
+            execution = sandbox.run_code(python_code, language="python")
 
             return {
                 # we will skip image outputs.
@@ -89,21 +96,29 @@ class SandboxManager:
         except Exception as e:
             return {"error": str(e)}
 
-    def run_on_command_line(self, command: str) -> dict:
+    def run_on_command_line(
+        self, command: str, sandbox_api_key: str, sandbox_id: str
+    ) -> dict:
         """
-        Runs the command on the active sandbox.
+        Runs the command on the sandbox.
 
         Args:
             command (str): The command to run.
+            sandbox_api_key (str): The API key for the sandbox.
+            sandbox_id (str): The ID of the sandbox.
 
         Returns:
             dict: Containing the output of the command and the execution error if any.
         """
 
         try:
-            self._ensure_sandbox_is_running()
+            # connect to sandbox
+            sandbox = Sandbox.connect(
+                api_key=sandbox_api_key,
+                sandbox_id=sandbox_id,
+            )
 
-            result = self.sandbox.commands.run(command)
+            result = sandbox.commands.run(command)
             return {
                 "output": {
                     "stdout": result.stdout,
