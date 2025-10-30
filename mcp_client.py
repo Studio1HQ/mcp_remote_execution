@@ -70,8 +70,7 @@ async def main(model: str, base_url: str, api_key: str):
             border_style="green",
         )
     )
-
-    last_used_sandbox_id = None
+    
     while True:
         user_input = Prompt.ask("\n[bold yellow]>>> User Message[/bold yellow]")
 
@@ -85,15 +84,13 @@ async def main(model: str, base_url: str, api_key: str):
             f"\n[bold green]>>> Assistant Response: {response_obj.response} [/]"
         )
 
-        # Update the last used sandbox id.
-        last_used_sandbox_id = response_obj.id_of_used_sandbox
 
-        if last_used_sandbox_id:
+        if response_obj.id_of_used_sandbox:
             # Will trigger closure of sandbox on MCP server if it sill active.
             session = await client.create_session("stock&sandbox")
             await session.call_tool(
                 name="stop_sandbox_session",
-                arguments={"sandbox_id": last_used_sandbox_id},
+                arguments={"sandbox_id": response_obj.id_of_used_sandbox},
             )
             await session.disconnect()
 
